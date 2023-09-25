@@ -7,12 +7,15 @@ Use function void EXTI9_5_IRQHandler(void) for interrupts. Put LD2(D13-PA5) on w
 /* Includes */
 
 #include "stm32l1xx.h"
+#define HSI_VALUE    ((uint32_t)16000000)
 #include "nucleo152start.h"
 #include <stdio.h>
 #include <string.h>
 
 /* Private typedef */
 /* Private define  */
+/* Define the resolution (change this value as needed) */
+#define ENCODER_RESOLUTION 15 // Set your desired resolution here
 /* Private macro */
 /* Private variables */
 /* Private function prototypes */
@@ -20,6 +23,9 @@ Use function void EXTI9_5_IRQHandler(void) for interrupts. Put LD2(D13-PA5) on w
 void delay_Ms(int delay);
 void USART_write(char data);
 void USART2_Init(void);
+
+/* Private variables */
+volatile int pulses = 0; // Initialize pulses to 0
 /**
 **===========================================================================
 **
@@ -40,38 +46,34 @@ int main(void)
 
   RCC->AHBENR|=1; 				//GPIOA ABH bus clock ON. p154
   RCC->APB2ENR |=1;				//Bit 0 SYSCFGEN: System configuration controller clock enable. p157
+  RCC->AHBENR |= 4;             //GPIOC clock ON.
   RCC->APB1ENR |=1<<29; 			//enable DAC clock
 
-  GPIOA->MODER &= ~0x00003000; 	// Configure PA6 (Encoder A) as an input
-  GPIOA->MODER &= ~0x0000C000; 	// Configure PA7 (Encoder B) as an input
+  GPIOA->MODER &= ~0x00003000; 	// Configure PA6 (Encoder A) as an input,11 0000 0000 0000
+  GPIOA->MODER &= ~0x0000C000; 	// Configure PA7 (Encoder B) as an input,1100 0000 0000 0000
   GPIOA->MODER |= 0x00000400; 	// GPIOA LD2 (PA5) to output.
   GPIOA->MODER |= 0x00000300;		//PA4 analog mode: 11,1100000000
 
   DAC->CR|=1;						//enable DAC,P314
   DAC->CR|=2;						//disable Buffer
 
-  SYSCFG->EXTICR[1] |= 0;		// Connect EXTI6 (PA6) to EXTI line,0x0000000,index 1:0-3;2:4-7;3:8-11.....s
+  SYSCFG->EXTICR[1] &= ~0xf00;
+  //SYSCFG->EXTICR[1] |= 0;		// Connect EXTI6 (PA6) to EXTI line,0x0000000,index 1:0-3;2:4-7;3:8-11.....s
   EXTI->IMR |= 1<<6;	// Unmask EXTI6 (PA6) interrupt, 1000000
   EXTI->RTSR |= 1<<6; 	// TR6, 1000000, Configure EXTI6 (PA6) to trigger on rising edge
   EXTI->FTSR |= 1<<6;
 
-  NVIC_EnableIRQ(EXTI9_5_IRQn);	// Enable EXTI9_5_IRQn
+  NVIC_EnableIRQ(EXTI9_5_IRQn);	// Enable EXTI9_5_IRQn???????????????
   __enable_irq();			//global enable IRQs, M3_Generic_User_Guide p135
 
   int data=0;
+  
+  DAC->DHR12R1=0;// Initialize DAC value
 
   /* Infinite loop */
    while (1)
   {
-	   DAC->DHR12R1=data++;
-	   delay_Ms(10);
 
-	   delay_Ms(10);
-
-	   if(data>=4095)
-	   {
-	   		data=0;
-	   }
   }
   return 0;
 }
@@ -104,31 +106,25 @@ void USART_write(char data)
 
 void EXTI9_5_IRQHandler(void)
 {
-	if (EXTI->PR & (1<<6)) // Check if PA6 (Encoder A) triggered the interrupt
-	    {
-	        if ((GPIOA->IDR & GPIO_IDR_IDR_6) != 0)
-	        {
-	        	char buf[]="risign edge interrupt";
-	        	for(int i=0;i<strlen(buf);i++)
-	        	{
-	        		USART_write(buf[i]);
-	        	}
-	        		USART_write('\n');
-	        		USART_write('\r');
-	        		GPIOA->ODR |= 0x20; // Set LD2 (LED2) ON
-	        }
-	        else
-	        {
-	        	char buf[]="falling edge interrupt";
-	        	for(int i=0;i<strlen(buf);i++)
-	        	{
-	        		USART_write(buf[i]);
-	        	}
-	        		USART_write('\n');
-	        		USART_write('\r');
-	        		GPIOA->ODR &= ~0x20;
-	        }
+	static int pulses = 0;
+	char buf[100];
 
-	        EXTI->PR = EXTI_PR_PR6; // Clear the interrupt flag
-	    }
+	if(GPIOA->IDR &(1<<7)&&(pulses>=ENCODER_RESOLUTION))
+	{
+		pulses = pulses-ENCODER_RESOLUTION;
+	}
+	else if(((GPIOA->IDR & (1<<7)) ==0)&&(pulses<=4095-ENCODER_RESOLUTION))
+	{
+		pulses = pulses+ENCODER_RESOLUTION;
+	}
+
+	sprintf(buf,"pulses %d \n\r", pulses);
+
+	for(int i=0;i<strlen(buf);i++)
+	{
+	    USART_write(buf[i]);
+	}
+	DAC->DHR12R1=pulses;
+	EXTI->PR = (1<<6); // Clear the interrupt flag
+
 }
