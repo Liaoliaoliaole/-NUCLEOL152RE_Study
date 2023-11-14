@@ -16,8 +16,6 @@ Welcome to the NUCLEO-L152RE Study GitHub repository! This repository is dedicat
 4. **TIMER: Distance Measurement**
    - Using HC-SR04 to measure distance, sending the measurement via USART2 in STM32. The delay function is implemented by timer interrupt.
 
-## Interrupts
-
 5. **I2C: Digital Thermometer**
    - Using the I2C bus with Nucleo, connecting DS16121 digital thermometer to pins PB8 and PB9. Temperature readings are then printed to an LCD.
 
